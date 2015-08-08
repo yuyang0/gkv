@@ -1,2 +1,2 @@
-# gkv
+* gkv
  gkv is a distribute key/value storage system implemented with golang
