@@ -13,14 +13,14 @@ type Connection struct {
 	conn     net.Conn
 }
 
-func (client *Connection) Listen() {
-	go client.Read()
-	go client.Write()
+func (conn *Connection) Listen() {
+	go conn.Read()
+	go conn.Write()
 }
 
-func NewConnection(connection net.Conn) *Connection {
-	writer := bufio.NewWriter(connection)
-	reader := bufio.NewReader(connection)
+func NewConnection(conn net.Conn) *Connection {
+	writer := bufio.NewWriter(conn)
+	reader := bufio.NewReader(conn)
 
 	info := &Connection{
 		incoming: make(chan *Msg),
@@ -34,29 +34,35 @@ func NewConnection(connection net.Conn) *Connection {
 	return info
 }
 
-func (client *Connection) Read() {
+func (conn *Connection) Read() {
 	for {
-		msg := ReadMsg(client.reader)
-		client.incoming <- msg
+		msg := ReadMsg(conn.reader)
+		conn.incoming <- msg
 	}
 }
 
-func (client *Connection) Write() {
-	for msg := range client.outgoing {
+func (conn *Connection) Write() {
+	for msg := range conn.outgoing {
 		data := msg.ConvertToBytes()
-		n, err := client.writer.Write(data)
+		n, err := conn.writer.Write(data)
 		if err != nil {
 			return
 		}
-		client.writer.Flush()
+		conn.writer.Flush()
 	}
 }
 
-func (info *Connection) WriteMsgToChan(msg *Msg) {
-	info.outgoing <- msg
+func (conn *Connection) WriteMsgToChan(msg *Msg) {
+	conn.outgoing <- msg
 }
 
-func (info *Connection) ReadMsgFromChan() *Msg {
-	msg := <-info.incoming
+func (conn *Connection) ReadMsgFromChan() *Msg {
+	msg := <-conn.incoming
 	return msg
+}
+
+func (conn *Connection) Close() {
+	close(conn.incoming)
+	close(conn.outgoing)
+	conn.conn.Close()
 }

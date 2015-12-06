@@ -21,7 +21,13 @@ func NewTcpServer(host string, port int) *TcpServer {
 		log.PanicErrorf(err, "Listen Error.")
 		return nil
 	}
-	server := &TcpServer{host, port, listener, make(map[string]*Connection), make(chan *Msg)}
+	server := &TcpServer{
+		host:      host,
+		port:      port,
+		listener:  listener,
+		conn_map:  make(map[string]*Connection),
+		conn_chan: make(chan *Msg),
+	}
 	return server
 }
 
