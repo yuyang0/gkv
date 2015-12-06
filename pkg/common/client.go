@@ -42,7 +42,7 @@ func (client *TcpClient) SendMsg(host string, port int, msg *Msg) bool {
 		connection := NewConnection(conn)
 		client.conn_map[addr] = connection
 	}
-	go connection.WriteMsgToChan(msg)
+	go connection.SendMsg(msg)
 	client.session_map[msg.sessionId] = make(chan *Msg, 1)
 
 	client.mu.Unlock()

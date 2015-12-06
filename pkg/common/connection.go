@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"io"
 	"net"
+
+	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
 type Connection struct {
@@ -35,7 +37,7 @@ func NewConnection(conn net.Conn) *Connection {
 
 func (connection *Connection) read() {
 	for {
-		msg, err := ReadMsg(connection.reader)
+		msg, err := readMsgFromReader(connection.reader)
 		if err != nil {
 			if err == io.EOF {
 				close(connection.incoming)
@@ -51,17 +53,21 @@ func (conn *Connection) write() {
 		data := msg.ConvertToBytes()
 		n, err := conn.writer.Write(data)
 		if err != nil {
+			log.ErrorErrorf(err, "Can't write all data to connection")
+			return
+		}
+		if n != len(data) {
 			return
 		}
 		conn.writer.Flush()
 	}
 }
 
-func (conn *Connection) WriteMsgToChan(msg *Msg) {
+func (conn *Connection) SendMsg(msg *Msg) {
 	conn.outgoing <- msg
 }
 
-func (conn *Connection) ReadMsgFromChan() *Msg {
+func (conn *Connection) ReceiveMsg() *Msg {
 	msg, ok := <-conn.incoming
 	if ok {
 		return msg
