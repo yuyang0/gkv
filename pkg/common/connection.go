@@ -4,20 +4,21 @@ import (
 	"bufio"
 	"io"
 	"net"
+	"time"
 
 	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
 type Connection struct {
-	incoming         chan *Msg
-	outgoing         chan *Msg
-	reader           *bufio.Reader
-	writer           *bufio.Writer
-	conn             net.Conn
-	timeout          int
-	auto_reconnect   bool
-	addr             string
-	last_active_time int
+	incoming      chan *Msg
+	outgoing      chan *Msg
+	reader        *bufio.Reader
+	writer        *bufio.Writer
+	conn          net.Conn
+	timeout       int
+	autoReconnect bool
+	addr          string
+	lastUseTime   time.Time
 }
 
 func NewConnection(conn net.Conn) *Connection {
@@ -25,13 +26,14 @@ func NewConnection(conn net.Conn) *Connection {
 	reader := bufio.NewReader(conn)
 
 	connection := &Connection{
-		incoming:       make(chan *Msg),
-		outgoing:       make(chan *Msg),
-		reader:         reader,
-		writer:         writer,
-		conn:           conn,
-		addr:           conn.RemoteAddr().String(),
-		auto_reconnect: true,
+		incoming:      make(chan *Msg),
+		outgoing:      make(chan *Msg),
+		reader:        reader,
+		writer:        writer,
+		conn:          conn,
+		addr:          conn.RemoteAddr().String(),
+		autoReconnect: true,
+		lastUseTime:   time.Now(),
 	}
 
 	go connection.read()

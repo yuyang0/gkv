@@ -8,21 +8,21 @@ import (
 )
 
 type TcpClient struct {
-	mu          sync.Mutex
-	conn_map    map[string]*Connection
-	session_map map[int]chan *Msg
-	resp_chan   chan *Msg
+	mu         sync.Mutex
+	connMap    map[string]*Connection
+	sessionMap map[int]chan *Msg
+	respChan   chan *Msg
 }
 
 func NewTcpClient() *TcpClient {
 	client := &TcpClient{
-		conn_map: make(map[string]*Connection, 10),
+		connMap: make(map[string]*Connection, 10),
 	}
 	go func() {
-		for msg := range client.resp_chan {
+		for msg := range client.respChan {
 			sessionId := msg.sessionId
 
-			client.session_map[sessionId] <- msg
+			client.sessionMap[sessionId] <- msg
 		}
 	}()
 	return client
@@ -33,7 +33,7 @@ func (client *TcpClient) SendMsg(host string, port int, msg *Msg) bool {
 
 	client.mu.Lock()
 
-	connection, ok := client.conn_map[addr]
+	connection, ok := client.connMap[addr]
 	if ok {
 		go connection.SendMsg(msg)
 	} else {
@@ -43,10 +43,10 @@ func (client *TcpClient) SendMsg(host string, port int, msg *Msg) bool {
 			return false
 		}
 		connection := NewConnection(conn)
-		client.conn_map[addr] = connection
+		client.connMap[addr] = connection
 		go connection.SendMsg(msg)
 	}
-	client.session_map[msg.sessionId] = make(chan *Msg, 1)
+	client.sessionMap[msg.sessionId] = make(chan *Msg, 1)
 
 	client.mu.Unlock()
 	return true
@@ -54,12 +54,12 @@ func (client *TcpClient) SendMsg(host string, port int, msg *Msg) bool {
 
 func (client *TcpClient) SafeDeleteSesion(sessionId int) {
 	client.mu.Lock()
-	delete(client.session_map, sessionId)
+	delete(client.sessionMap, sessionId)
 	client.mu.Unlock()
 }
 
 func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
-	session_chan, ok := client.session_map[sessionId]
+	session_chan, ok := client.sessionMap[sessionId]
 	if !ok {
 		log.Errorf("Can't get session channel(%d)", sessionId)
 		return nil, fmt.Errorf("Can't get session channel(%d)", sessionId)
@@ -71,7 +71,7 @@ func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
 }
 
 func (client *TcpClient) GetRespNonBlock(sessionId int) *Msg {
-	session_chan, ok := client.session_map[sessionId]
+	session_chan, ok := client.sessionMap[sessionId]
 	if !ok {
 		log.Errorf("Can't get session channel(%d)", sessionId)
 		return nil

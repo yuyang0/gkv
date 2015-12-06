@@ -8,10 +8,10 @@ import (
 )
 
 type TcpServer struct {
-	listen_addr string
-	listener    net.Listener
-	conn_map    map[string]*Connection
-	req_chan    chan *Msg
+	listenAddr string
+	listener   net.Listener
+	connMap    map[string]*Connection
+	reqChan    chan *Msg
 
 	mu sync.Mutex
 }
@@ -23,10 +23,10 @@ func NewTcpServer(addr string) *TcpServer {
 		return nil
 	}
 	server := &TcpServer{
-		listen_addr: addr,
-		listener:    listener,
-		conn_map:    make(map[string]*Connection),
-		req_chan:    make(chan *Msg, 100), // all request message will write to this chan
+		listenAddr: addr,
+		listener:   listener,
+		connMap:    make(map[string]*Connection),
+		reqChan:    make(chan *Msg, 100), // all request message will write to this chan
 	}
 	return server
 }
@@ -43,13 +43,13 @@ func (server *TcpServer) Loop() {
 			info := NewConnection(conn)
 
 			server.mu.Lock()
-			server.conn_map[addr] = info
+			server.connMap[addr] = info
 			server.mu.Unlock()
 
 			for {
 				msg := <-info.incoming
 				msg.SetConnection(info)
-				server.req_chan <- msg
+				server.reqChan <- msg
 			}
 		}(conn)
 	}
