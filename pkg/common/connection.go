@@ -51,6 +51,7 @@ func (connection *Connection) read() {
 				return
 			}
 		}
+		connection.lastUseTime = time.Now()
 		connection.incoming <- msg
 	}
 }
@@ -67,6 +68,7 @@ func (conn *Connection) write() {
 			return
 		}
 		conn.writer.Flush()
+		conn.lastUseTime = time.Now()
 	}
 }
 

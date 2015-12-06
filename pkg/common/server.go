@@ -3,6 +3,7 @@ package common
 import (
 	"net"
 	"sync"
+	"time"
 
 	"github.com/yuyang0/gkv/pkg/utils/log"
 )
@@ -28,6 +29,20 @@ func NewTcpServer(addr string) *TcpServer {
 		connMap:    make(map[string]*Connection),
 		reqChan:    make(chan *Msg, 100), // all request message will write to this chan
 	}
+	//this goroutine used to check the idle connections
+	// when this connection stays idle for 15 minutes, we will close it.
+	go func() {
+		for {
+			server.mu.Lock()
+			for addr, conn := range server.connMap {
+				if time.Since(conn.lastUseTime).Minutes() > 15 {
+					delete(server.connMap, addr)
+				}
+			}
+			server.mu.Unlock()
+			time.Sleep(5 * time.Minute)
+		}
+	}()
 	return server
 }
 
@@ -39,18 +54,28 @@ func (server *TcpServer) Loop() {
 			continue
 		}
 		go func(conn net.Conn) {
-			addr := conn.RemoteAddr().String()
-			info := NewConnection(conn)
+			connection := NewConnection(conn)
 
-			server.mu.Lock()
-			server.connMap[addr] = info
-			server.mu.Unlock()
+			server.safeAddConn(connection)
 
 			for {
-				msg := <-info.incoming
-				msg.SetConnection(info)
+				msg := connection.ReceiveMsg()
+				msg.SetConnection(connection)
 				server.reqChan <- msg
 			}
 		}(conn)
 	}
+}
+
+func (server *TcpServer) safeAddConn(conn *Connection) {
+	addr := conn.addr
+	server.mu.Lock()
+	server.connMap[addr] = conn
+	server.mu.Unlock()
+}
+
+func (server *TcpServer) safeDeleteConn(addr string) {
+	server.mu.Lock()
+	delete(server.connMap, addr)
+	server.mu.Unlock()
 }

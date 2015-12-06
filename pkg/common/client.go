@@ -2,9 +2,11 @@ package common
 
 import (
 	"fmt"
-	"github.com/yuyang0/gkv/pkg/utils/log"
 	"net"
 	"sync"
+	"time"
+
+	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
 type TcpClient struct {
@@ -23,6 +25,20 @@ func NewTcpClient() *TcpClient {
 			sessionId := msg.sessionId
 
 			client.sessionMap[sessionId] <- msg
+		}
+	}()
+	//this goroutine used to check the idle connections
+	// when this connection stays idle for 15 minutes, we will close it.
+	go func() {
+		for {
+			client.mu.Lock()
+			for addr, conn := range client.connMap {
+				if time.Since(conn.lastUseTime).Minutes() > 15 {
+					delete(client.connMap, addr)
+				}
+			}
+			client.mu.Unlock()
+			time.Sleep(5 * time.Minute)
 		}
 	}()
 	return client
