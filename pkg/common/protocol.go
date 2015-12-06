@@ -1,10 +1,12 @@
 package common
 
 import (
+	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"strconv"
+
+	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
 type MsgHeader struct {
@@ -23,11 +25,19 @@ type Msg struct {
 func ReadMsg(reader *bufio.Reader) *Msg {
 	line, err := reader.ReadString('\n')
 	if err != nil {
-		return
+		log.WarnErrorf(err, "can't read message length.")
+		return nil
 	}
 	length, err := strconv.Atoi(line[:len(line)-2])
-
+	if err != nil {
+		log.WarnErrorf(err, "Can't convert message length to integer.")
+		return nil
+	}
 	line, err = reader.ReadString('\n')
+	if err != nil {
+		log.WarnErrorf(err, "Can't read message encode type..")
+		return nil
+	}
 	encodeType, err := strconv.Atoi(line[:len(line)-2])
 
 	line, err = reader.ReadString('\n')
@@ -46,11 +56,12 @@ func ReadMsg(reader *bufio.Reader) *Msg {
 	n, err := io.ReadFull(reader, data)
 	if err != nil {
 	}
-	return &Msg{length, encodeType, requestId, responseTo, pCode, data}
+	return &Msg{
+		length, encodeType, requestId, responseTo, pCode, data}
 }
 
 func (self *Msg) ConvertToBytes() []byte {
-	ss := fmt.Sprintf("%d\r\n%d\r\n%d\r\n%d\r\n%d\r\n%s",
+	ss := fmt.Sprintf("%d\r\n%d\r\n%d\r\n%d\r\n%d\r\n\r\n%s",
 		self.length, self.encodeType, self.requestId, self.responseTo, self.pCode, self.data)
 	return []byte(ss)
 }
