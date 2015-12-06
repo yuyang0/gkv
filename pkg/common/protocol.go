@@ -10,9 +10,27 @@ import (
 	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
+type EncodeType int
+
+const (
+	ENCODE_TYPE_JSON = EncodeType(1 << iota)
+	ENCODE_TYPE_PROTOBUF
+)
+
+func (t EncodeType) String() string {
+	switch t {
+	case ENCODE_TYPE_PROTOBUF:
+		return "protobuf"
+	case ENCODE_TYPE_JSON:
+		return "json"
+	default:
+		return "unkown"
+	}
+}
+
 type Msg struct {
 	length     int
-	encodeType int
+	encodeType EncodeType
 	sessionId  int
 	pCode      int
 
@@ -21,7 +39,7 @@ type Msg struct {
 	connection *Connection
 }
 
-func ReadMsg(reader *bufio.Reader) (*Msg, error) {
+func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		log.WarnErrorf(err, "can't read message length.")
@@ -70,7 +88,7 @@ func ReadMsg(reader *bufio.Reader) (*Msg, error) {
 	}
 	msg := &Msg{
 		length:     length,
-		encodeType: encodeType,
+		encodeType: EncodeType(encodeType),
 		sessionId:  sessionId,
 		pCode:      pCode,
 		data:       data,
@@ -84,7 +102,7 @@ func (self *Msg) ConvertToBytes() []byte {
 	return []byte(ss)
 }
 
-func NewReqMsg(encodeType int, pCode int, data []byte) *Msg {
+func NewReqMsg(encodeType EncodeType, pCode int, data []byte) *Msg {
 	length := len(data)
 	return &Msg{
 		length:     length,
@@ -95,7 +113,7 @@ func NewReqMsg(encodeType int, pCode int, data []byte) *Msg {
 	}
 }
 
-func NewRespMsg(encodeType int, sessionId int, pCode int, data []byte) *Msg {
+func NewRespMsg(encodeType EncodeType, sessionId int, pCode int, data []byte) *Msg {
 	length := len(data)
 	return &Msg{
 		length:     length,
