@@ -44,6 +44,7 @@ func NewConnection(conn net.Conn) *Connection {
 
 func (connection *Connection) read() {
 	for {
+		connection.conn.SetReadDeadline(time.Now().Add(20 * time.Second))
 		msg, err := readMsgFromReader(connection.reader)
 		if err != nil {
 			if err == io.EOF {
@@ -59,6 +60,7 @@ func (connection *Connection) read() {
 func (conn *Connection) write() {
 	for msg := range conn.outgoing {
 		data := msg.ConvertToBytes()
+		conn.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
 		n, err := conn.writer.Write(data)
 		if err != nil {
 			log.ErrorErrorf(err, "Can't write all data to connection")
