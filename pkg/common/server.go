@@ -2,16 +2,19 @@ package common
 
 import (
 	"net"
+	"sync"
 
 	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
 type TcpServer struct {
-	host      string
-	port      int
-	listener  net.Listener
-	conn_map  map[string]*Connection
-	conn_chan chan *Msg
+	host     string
+	port     int
+	listener net.Listener
+	conn_map map[string]*Connection
+	req_chan chan *Msg
+
+	mu sync.Mutex
 }
 
 func NewTcpServer(host string, port int) *TcpServer {
@@ -22,11 +25,11 @@ func NewTcpServer(host string, port int) *TcpServer {
 		return nil
 	}
 	server := &TcpServer{
-		host:      host,
-		port:      port,
-		listener:  listener,
-		conn_map:  make(map[string]*Connection),
-		conn_chan: make(chan *Msg),
+		host:     host,
+		port:     port,
+		listener: listener,
+		conn_map: make(map[string]*Connection),
+		req_chan: make(chan *Msg, 100), // all request message will write to this chan
 	}
 	return server
 }
@@ -41,15 +44,16 @@ func (server *TcpServer) Loop() {
 		go func(conn net.Conn) {
 			addr := conn.RemoteAddr().String()
 			info := NewConnection(conn)
+
+			server.mu.Lock()
 			server.conn_map[addr] = info
+			server.mu.Unlock()
 
 			for {
 				msg := <-info.incoming
-				go HandleMsg(info, msg)
+				msg.SetConnection(info)
+				server.req_chan <- msg
 			}
 		}(conn)
 	}
-}
-
-func HandleMsg(conn *Connection, msg *Msg) {
 }

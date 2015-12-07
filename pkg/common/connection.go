@@ -2,6 +2,7 @@ package common
 
 import (
 	"bufio"
+	"io"
 	"net"
 )
 
@@ -11,37 +12,41 @@ type Connection struct {
 	reader   *bufio.Reader
 	writer   *bufio.Writer
 	conn     net.Conn
-}
-
-func (conn *Connection) Listen() {
-	go conn.Read()
-	go conn.Write()
+	timeout  int
 }
 
 func NewConnection(conn net.Conn) *Connection {
 	writer := bufio.NewWriter(conn)
 	reader := bufio.NewReader(conn)
 
-	info := &Connection{
+	connection := &Connection{
 		incoming: make(chan *Msg),
 		outgoing: make(chan *Msg),
 		reader:   reader,
 		writer:   writer,
+		conn:     conn,
 	}
 
-	info.Listen()
+	go connection.read()
+	go connection.write()
 
-	return info
+	return connection
 }
 
-func (conn *Connection) Read() {
+func (connection *Connection) read() {
 	for {
-		msg := ReadMsg(conn.reader)
-		conn.incoming <- msg
+		msg, err := ReadMsg(connection.reader)
+		if err != nil {
+			if err == io.EOF {
+				close(connection.incoming)
+				return
+			}
+		}
+		connection.incoming <- msg
 	}
 }
 
-func (conn *Connection) Write() {
+func (conn *Connection) write() {
 	for msg := range conn.outgoing {
 		data := msg.ConvertToBytes()
 		n, err := conn.writer.Write(data)
@@ -57,8 +62,12 @@ func (conn *Connection) WriteMsgToChan(msg *Msg) {
 }
 
 func (conn *Connection) ReadMsgFromChan() *Msg {
-	msg := <-conn.incoming
-	return msg
+	msg, ok := <-conn.incoming
+	if ok {
+		return msg
+	} else {
+		return nil
+	}
 }
 
 func (conn *Connection) Close() {

@@ -4,48 +4,54 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math/rand"
 	"strconv"
 
 	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
-type MsgHeader struct {
+type Msg struct {
 	length     int
 	encodeType int
-	requestId  int
-	responseTo int
+	sessionId  int
 	pCode      int
-}
 
-type Msg struct {
-	MsgHeader
 	data []byte
+
+	connection *Connection
 }
 
-func ReadMsg(reader *bufio.Reader) *Msg {
+func ReadMsg(reader *bufio.Reader) (*Msg, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		log.WarnErrorf(err, "can't read message length.")
-		return nil
+		return nil, err
 	}
 	length, err := strconv.Atoi(line[:len(line)-2])
 	if err != nil {
 		log.WarnErrorf(err, "Can't convert message length to integer.")
-		return nil
+		return nil, err
 	}
 	line, err = reader.ReadString('\n')
 	if err != nil {
 		log.WarnErrorf(err, "Can't read message encode type..")
-		return nil
+		return nil, err
 	}
 	encodeType, err := strconv.Atoi(line[:len(line)-2])
-
+	if err != nil {
+		log.WarnErrorf(err, "Can't convert message encodeType to integer.")
+		return nil, err
+	}
 	line, err = reader.ReadString('\n')
-	requestId, err := strconv.Atoi(line[:len(line)-2])
-
-	line, err = reader.ReadString('\n')
-	responseTo, err := strconv.Atoi(line[:len(line)-2])
-
+	if err != nil {
+		log.WarnErrorf(err, "Can't read channel id.")
+		return nil, err
+	}
+	sessionId, err := strconv.Atoi(line[:len(line)-2])
+	if err != nil {
+		log.WarnErrorf(err, "Can't convert sessionId to integer..")
+		return nil, err
+	}
 	line, err = reader.ReadString('\n')
 	pCode, err := strconv.Atoi(line[:len(line)-2])
 	// ignore the rest headers
@@ -55,13 +61,55 @@ func ReadMsg(reader *bufio.Reader) *Msg {
 	data := make([]byte, length)
 	n, err := io.ReadFull(reader, data)
 	if err != nil {
+		log.WarnErrorf(err, "Can't read data..")
+		return nil, err
 	}
-	return &Msg{
-		length, encodeType, requestId, responseTo, pCode, data}
+	if n != length {
+		log.WarnErrorf(err, "Need read %d bytes, but only get %d bytes", length, n)
+		return nil, fmt.Errorf("Need read %d bytes, but only get %d bytes", length, n)
+	}
+	msg := &Msg{
+		length:     length,
+		encodeType: encodeType,
+		sessionId:  sessionId,
+		pCode:      pCode,
+		data:       data,
+	}
+	return msg, nil
 }
 
 func (self *Msg) ConvertToBytes() []byte {
-	ss := fmt.Sprintf("%d\r\n%d\r\n%d\r\n%d\r\n%d\r\n\r\n%s",
-		self.length, self.encodeType, self.requestId, self.responseTo, self.pCode, self.data)
+	ss := fmt.Sprintf("%d\r\n%d\r\n%d\r\n%d\r\n\r\n%s",
+		self.length, self.encodeType, self.sessionId, self.pCode, self.data)
 	return []byte(ss)
+}
+
+func NewReqMsg(encodeType int, pCode int, data []byte) *Msg {
+	length := len(data)
+	return &Msg{
+		length:     length,
+		encodeType: encodeType,
+		sessionId:  genSessionId(),
+		pCode:      pCode,
+		data:       data,
+	}
+}
+
+func NewRespMsg(encodeType int, sessionId int, pCode int, data []byte) *Msg {
+	length := len(data)
+	return &Msg{
+		length:     length,
+		encodeType: encodeType,
+		sessionId:  sessionId,
+		pCode:      pCode,
+		data:       data,
+	}
+}
+
+func (msg *Msg) SetConnection(conn *Connection) {
+	msg.connection = conn
+}
+
+func genSessionId() int {
+	return rand.Int()
 }
