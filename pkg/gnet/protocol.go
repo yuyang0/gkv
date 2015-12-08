@@ -96,8 +96,11 @@ func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
 	line, err = reader.ReadString('\n')
 	pCode, err := strconv.Atoi(line[:len(line)-2])
 	// ignore the rest headers
-	for line == "\r\n" {
+	for {
 		line, err = reader.ReadString('\n')
+		if line == "\r\n" {
+			break
+		}
 	}
 	data := make([]byte, length)
 	n, err := io.ReadFull(reader, data)
