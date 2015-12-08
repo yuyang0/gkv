@@ -38,6 +38,7 @@ func NewTcpClient() *TcpClient {
 		connMap:            make(map[string]*Connection, 10),
 		sessionMap:         make(map[int]*Session, 10),
 		finishedSessionMap: make(map[int]*Session, 10),
+		respChan:           make(chan *Msg, 100),
 	}
 	//this goroutine used to check the idle connections
 	// when this connection stays idle for 15 minutes, we will close it.
