@@ -8,28 +8,25 @@ import (
 )
 
 type TcpServer struct {
-	host     string
-	port     int
-	listener net.Listener
-	conn_map map[string]*Connection
-	req_chan chan *Msg
+	listen_addr string
+	listener    net.Listener
+	conn_map    map[string]*Connection
+	req_chan    chan *Msg
 
 	mu sync.Mutex
 }
 
-func NewTcpServer(host string, port int) *TcpServer {
-	addr := host + ":" + string(port)
+func NewTcpServer(addr string) *TcpServer {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.PanicErrorf(err, "Listen Error.")
 		return nil
 	}
 	server := &TcpServer{
-		host:     host,
-		port:     port,
-		listener: listener,
-		conn_map: make(map[string]*Connection),
-		req_chan: make(chan *Msg, 100), // all request message will write to this chan
+		listen_addr: addr,
+		listener:    listener,
+		conn_map:    make(map[string]*Connection),
+		req_chan:    make(chan *Msg, 100), // all request message will write to this chan
 	}
 	return server
 }

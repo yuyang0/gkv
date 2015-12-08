@@ -9,12 +9,15 @@ import (
 )
 
 type Connection struct {
-	incoming chan *Msg
-	outgoing chan *Msg
-	reader   *bufio.Reader
-	writer   *bufio.Writer
-	conn     net.Conn
-	timeout  int
+	incoming         chan *Msg
+	outgoing         chan *Msg
+	reader           *bufio.Reader
+	writer           *bufio.Writer
+	conn             net.Conn
+	timeout          int
+	auto_reconnect   bool
+	addr             string
+	last_active_time int
 }
 
 func NewConnection(conn net.Conn) *Connection {
@@ -22,11 +25,13 @@ func NewConnection(conn net.Conn) *Connection {
 	reader := bufio.NewReader(conn)
 
 	connection := &Connection{
-		incoming: make(chan *Msg),
-		outgoing: make(chan *Msg),
-		reader:   reader,
-		writer:   writer,
-		conn:     conn,
+		incoming:       make(chan *Msg),
+		outgoing:       make(chan *Msg),
+		reader:         reader,
+		writer:         writer,
+		conn:           conn,
+		addr:           conn.RemoteAddr().String(),
+		auto_reconnect: true,
 	}
 
 	go connection.read()
@@ -63,10 +68,12 @@ func (conn *Connection) write() {
 	}
 }
 
+// send a message(this function maybe block)
 func (conn *Connection) SendMsg(msg *Msg) {
 	conn.outgoing <- msg
 }
 
+// receive a msg from conncetion(this function maybe block.)
 func (conn *Connection) ReceiveMsg() *Msg {
 	msg, ok := <-conn.incoming
 	if ok {
