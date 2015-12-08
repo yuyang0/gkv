@@ -24,14 +24,14 @@ func init() {
 		for reqMsg := range s.reqChan {
 			respMsg := NewRespMsg(ENCODE_TYPE_JSON, reqMsg.sessionId, 2, reqMsg.data)
 			conn := reqMsg.connection
-			conn.SendMsg(respMsg)
+			go conn.SendMsg(respMsg)
 		}
 	}()
 }
 
 func TestServer(t *testing.T) {
 	log.Debugf("Enter TestServer..")
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 2000; i++ {
 		log.Debugf("loop: %d.", i)
 		val := "hello world"
 		msg := NewReqMsg(ENCODE_TYPE_JSON, 2, []byte(val))
