@@ -73,6 +73,11 @@ func (server *TcpServer) Loop() {
 	}
 }
 
+func (s *TcpServer) Stop() {
+	s.listener.Close()
+	return
+}
+
 func (server *TcpServer) safeAddConn(conn *Connection) {
 	addr := conn.addr
 	server.mu.Lock()
