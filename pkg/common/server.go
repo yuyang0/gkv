@@ -47,12 +47,12 @@ func NewTcpServer(addr string) *TcpServer {
 	return server
 }
 
-func (server *TcpServer) Loop() {
+func (server *TcpServer) Start() {
 	for {
 		conn, err := server.listener.Accept()
 		if err != nil {
 			log.WarnErrorf(err, "Accept Error.")
-			continue
+			return
 		}
 		go func(conn net.Conn) {
 			connection := NewConnection(conn)
