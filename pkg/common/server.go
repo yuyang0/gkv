@@ -37,6 +37,7 @@ func NewTcpServer(addr string) *TcpServer {
 			for addr, conn := range server.connMap {
 				if time.Since(conn.lastUseTime).Minutes() > 15 {
 					delete(server.connMap, addr)
+					conn.Disconnect()
 				}
 			}
 			server.mu.Unlock()
@@ -60,6 +61,11 @@ func (server *TcpServer) Loop() {
 
 			for {
 				msg := connection.ReceiveMsg()
+				if msg == nil {
+					server.safeDeleteConn(connection.addr)
+					connection.Disconnect()
+					return
+				}
 				msg.SetConnection(connection)
 				server.reqChan <- msg
 			}

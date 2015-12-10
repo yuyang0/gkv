@@ -2,7 +2,6 @@ package common
 
 import (
 	"bufio"
-	"io"
 	"net"
 	"time"
 
@@ -10,15 +9,14 @@ import (
 )
 
 type Connection struct {
-	incoming      chan *Msg
-	outgoing      chan *Msg
-	reader        *bufio.Reader
-	writer        *bufio.Writer
-	conn          net.Conn
-	timeout       int
-	autoReconnect bool
-	addr          string
-	lastUseTime   time.Time
+	incoming    chan *Msg
+	outgoing    chan *Msg
+	reader      *bufio.Reader
+	writer      *bufio.Writer
+	conn        net.Conn
+	addr        string
+	lastUseTime time.Time
+	isConnected bool
 }
 
 func NewConnection(conn net.Conn) *Connection {
@@ -26,14 +24,14 @@ func NewConnection(conn net.Conn) *Connection {
 	reader := bufio.NewReader(conn)
 
 	connection := &Connection{
-		incoming:      make(chan *Msg),
-		outgoing:      make(chan *Msg),
-		reader:        reader,
-		writer:        writer,
-		conn:          conn,
-		addr:          conn.RemoteAddr().String(),
-		autoReconnect: true,
-		lastUseTime:   time.Now(),
+		incoming:    make(chan *Msg),
+		outgoing:    make(chan *Msg),
+		reader:      reader,
+		writer:      writer,
+		conn:        conn,
+		addr:        conn.RemoteAddr().String(),
+		lastUseTime: time.Now(),
+		isConnected: true,
 	}
 
 	go connection.read()
@@ -44,13 +42,19 @@ func NewConnection(conn net.Conn) *Connection {
 
 func (connection *Connection) read() {
 	for {
-		connection.conn.SetReadDeadline(time.Now().Add(20 * time.Second))
+		if connection.isConnected == false {
+			close(connection.incoming)
+			connection.conn.Close()
+			return
+		}
+		connection.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 		msg, err := readMsgFromReader(connection.reader)
 		if err != nil {
-			if err == io.EOF {
-				close(connection.incoming)
-				return
-			}
+			log.ErrorErrorf(err, "Can't read Msg from %s", connection.addr)
+			connection.isConnected = false
+			close(connection.incoming)
+			connection.conn.Close()
+			return
 		}
 		connection.lastUseTime = time.Now()
 		connection.incoming <- msg
@@ -59,14 +63,15 @@ func (connection *Connection) read() {
 
 func (conn *Connection) write() {
 	for msg := range conn.outgoing {
-		data := msg.ConvertToBytes()
-		conn.conn.SetWriteDeadline(time.Now().Add(20 * time.Second))
-		n, err := conn.writer.Write(data)
-		if err != nil {
-			log.ErrorErrorf(err, "Can't write all data to connection")
+		if conn.isConnected == false {
 			return
 		}
-		if n != len(data) {
+		data := msg.ConvertToBytes()
+		conn.conn.SetWriteDeadline(time.Now().Add(70 * time.Second))
+		_, err := conn.writer.Write(data)
+		if err != nil {
+			conn.isConnected = false
+			log.ErrorErrorf(err, "Can't write all data to connection")
 			return
 		}
 		conn.writer.Flush()
@@ -76,7 +81,11 @@ func (conn *Connection) write() {
 
 // send a message(this function maybe block)
 func (conn *Connection) SendMsg(msg *Msg) {
-	conn.outgoing <- msg
+	if conn.isConnected == false {
+		return
+	} else {
+		conn.outgoing <- msg
+	}
 }
 
 // receive a msg from conncetion(this function maybe block.)
@@ -89,7 +98,19 @@ func (conn *Connection) ReceiveMsg() *Msg {
 	}
 }
 
-func (conn *Connection) Close() {
+func (conn *Connection) Disconnect() {
+	conn.isConnected = false
+}
+
+func (conn *Connection) CloseSendChan() {
+	close(conn.outgoing)
+}
+
+func (conn *Connection) CloseReceiveChan() {
+	close(conn.incoming)
+}
+
+func (conn *Connection) Cleanup() {
 	close(conn.incoming)
 	close(conn.outgoing)
 	conn.conn.Close()

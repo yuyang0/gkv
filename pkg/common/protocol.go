@@ -28,6 +28,11 @@ func (t EncodeType) String() string {
 	}
 }
 
+const (
+	MSG_TIMEOUT = 1
+	MSG_ERROR   = 2
+)
+
 type Msg struct {
 	length     int
 	encodeType EncodeType
@@ -37,6 +42,24 @@ type Msg struct {
 	data []byte
 
 	connection *Connection
+}
+
+func NewTimeoutMsg(sessionId int) *Msg {
+	return &Msg{
+		length:     0,
+		encodeType: ENCODE_TYPE_JSON,
+		sessionId:  sessionId,
+		pCode:      MSG_TIMEOUT,
+	}
+}
+
+func NewErrorMsg(sessionId int) *Msg {
+	return &Msg{
+		length:     0,
+		encodeType: ENCODE_TYPE_JSON,
+		sessionId:  sessionId,
+		pCode:      MSG_ERROR,
+	}
 }
 
 func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
