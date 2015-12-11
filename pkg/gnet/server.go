@@ -38,7 +38,7 @@ func NewTcpServer(addr string) *TcpServer {
 		for {
 			server.mu.Lock()
 			for addr, conn := range server.connMap {
-				if time.Since(conn.lastUseTime).Minutes() > 15 {
+				if time.Since(conn.LastUseTime()).Minutes() > 15 {
 					delete(server.connMap, addr)
 					conn.Disconnect()
 				}
@@ -48,6 +48,11 @@ func NewTcpServer(addr string) *TcpServer {
 		}
 	}()
 	return server
+}
+
+//TODO:
+func (server *TcpServer) SendResp(msg *Msg) bool {
+	return true
 }
 
 func (server *TcpServer) Start() {
@@ -72,7 +77,7 @@ func (server *TcpServer) Start() {
 		}
 		log.Infof("Accept connection from %s", conn.RemoteAddr().String())
 		go func(conn net.Conn) {
-			connection := NewConnection(conn)
+			connection := NewConnection(conn, true)
 
 			server.safeAddConn(connection)
 
