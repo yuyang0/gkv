@@ -151,6 +151,11 @@ func (msg *Msg) SetConnection(conn *Connection) {
 	msg.connection = conn
 }
 
+func (msg *Msg) String() string {
+	ss := fmt.Sprintf("{\n\tlength: %d \n\tsessionId %d \n\tdata %s}", msg.length, msg.sessionId, string(msg.data))
+	return ss
+}
+
 func genSessionId() int {
 	return rand.Int()
 }

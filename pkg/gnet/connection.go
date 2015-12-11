@@ -3,6 +3,7 @@ package gnet
 import (
 	"bufio"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/yuyang0/gkv/pkg/utils/log"
@@ -16,7 +17,8 @@ type Connection struct {
 	conn        net.Conn
 	addr        string
 	lastUseTime time.Time
-	isConnected bool
+
+	mtx sync.Mutex
 }
 
 func NewConnection(conn net.Conn) *Connection {
@@ -31,7 +33,6 @@ func NewConnection(conn net.Conn) *Connection {
 		conn:        conn,
 		addr:        conn.RemoteAddr().String(),
 		lastUseTime: time.Now(),
-		isConnected: true,
 	}
 
 	go connection.read()
@@ -40,52 +41,49 @@ func NewConnection(conn net.Conn) *Connection {
 	return connection
 }
 
-func (connection *Connection) read() {
+func (c *Connection) read() {
 	for {
-		if connection.isConnected == false {
-			close(connection.incoming)
-			connection.conn.Close()
-			return
-		}
-		connection.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
-		msg, err := readMsgFromReader(connection.reader)
+		c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
+		msg, err := readMsgFromReader(c.reader)
 		if err != nil {
-			log.ErrorErrorf(err, "Can't read Msg from %s", connection.addr)
-			connection.isConnected = false
-			close(connection.incoming)
-			connection.conn.Close()
+			log.ErrorErrorf(err, "Can't read Msg from %s", c.addr)
+
+			close(c.incoming)
+			c.conn.Close()
 			return
 		}
-		connection.lastUseTime = time.Now()
-		connection.incoming <- msg
+
+		c.mtx.Lock()
+		c.lastUseTime = time.Now()
+		c.mtx.Unlock()
+
+		c.incoming <- msg
 	}
 }
 
-func (conn *Connection) write() {
-	for msg := range conn.outgoing {
-		if conn.isConnected == false {
-			return
-		}
+func (c *Connection) write() {
+	for msg := range c.outgoing {
+		log.Debugf("write message(%d)", msg.sessionId)
 		data := msg.ConvertToBytes()
-		conn.conn.SetWriteDeadline(time.Now().Add(70 * time.Second))
-		_, err := conn.writer.Write(data)
+		c.conn.SetWriteDeadline(time.Now().Add(70 * time.Second))
+		_, err := c.writer.Write(data)
 		if err != nil {
-			conn.isConnected = false
 			log.ErrorErrorf(err, "Can't write all data to connection")
 			return
 		}
-		conn.writer.Flush()
-		conn.lastUseTime = time.Now()
+		c.writer.Flush()
+
+		log.Debugf("finished write message(%d)", msg.sessionId)
+
+		c.mtx.Lock()
+		c.lastUseTime = time.Now()
+		c.mtx.Unlock()
 	}
 }
 
 // send a message(this function maybe block)
 func (conn *Connection) SendMsg(msg *Msg) {
-	if conn.isConnected == false {
-		return
-	} else {
-		conn.outgoing <- msg
-	}
+	conn.outgoing <- msg
 }
 
 // receive a msg from conncetion(this function maybe block.)
@@ -98,8 +96,9 @@ func (conn *Connection) ReceiveMsg() *Msg {
 	}
 }
 
-func (conn *Connection) Disconnect() {
-	conn.isConnected = false
+func (c *Connection) Disconnect() {
+	close(c.outgoing)
+	c.conn.Close()
 }
 
 func (conn *Connection) CloseSendChan() {

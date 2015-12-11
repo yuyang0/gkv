@@ -35,7 +35,9 @@ type TcpClient struct {
 
 func NewTcpClient() *TcpClient {
 	client := &TcpClient{
-		connMap: make(map[string]*Connection, 10),
+		connMap:            make(map[string]*Connection, 10),
+		sessionMap:         make(map[int]*Session, 10),
+		finishedSessionMap: make(map[int]*Session, 10),
 	}
 	//this goroutine used to check the idle connections
 	// when this connection stays idle for 15 minutes, we will close it.
@@ -57,6 +59,7 @@ func NewTcpClient() *TcpClient {
 		for msg := range client.respChan {
 			sessionId := msg.sessionId
 
+			log.Debugf("[client] Move resp(%d) to session", sessionId)
 			client.sessionMtx.Lock()
 			session, ok := client.sessionMap[sessionId]
 			if ok {
@@ -77,19 +80,23 @@ func NewTcpClient() *TcpClient {
 
 	//this goroutine used to check the timeout session
 	go func(c *TcpClient) {
-		c.sessionMtx.Lock()
-		for sessionId, session := range c.sessionMap {
-			if time.Since(session.createdTime) > 120*time.Second {
-				select {
-				case session.sessionChan <- NewTimeoutMsg(sessionId):
-					delete(c.sessionMap, sessionId)
-					c.finishedSessionMap[sessionId] = session
-				default:
-					log.Errorf("Write timeout session to session(%d) channel should not block..", sessionId)
+		for {
+			c.sessionMtx.Lock()
+			for sessionId, session := range c.sessionMap {
+				if time.Since(session.createdTime) > 120*time.Second {
+					select {
+					case session.sessionChan <- NewTimeoutMsg(sessionId):
+						delete(c.sessionMap, sessionId)
+						c.finishedSessionMap[sessionId] = session
+					default:
+						log.Errorf("Write timeout session to session(%d) channel should not block..", sessionId)
+					}
 				}
 			}
+			c.sessionMtx.Unlock()
+
+			time.Sleep(5 * time.Second)
 		}
-		c.sessionMtx.Unlock()
 	}(client)
 
 	return client
@@ -102,24 +109,26 @@ func (client *TcpClient) SendMsg(addr string, msg *Msg) bool {
 	if ok {
 		go connection.SendMsg(msg)
 	} else {
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			log.WarnErrorf(err, "Can't dail to %s", addr)
+		connection = client.createConnection(addr)
+		if connection == nil {
+			client.mu.Unlock()
 			return false
 		}
-		connection := NewConnection(conn)
-		client.connMap[addr] = connection
 		go connection.SendMsg(msg)
 	}
 	client.mu.Unlock()
 
-	client.safeAddSession(msg.sessionId, msg)
+	client.safeAddSession(msg.sessionId)
+	log.Debug(client.sessionMap)
 	return true
 }
 
 func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
 	client.sessionMtx.Lock()
 	session, ok := client.finishedSessionMap[sessionId]
+	if !ok {
+		session, ok = client.sessionMap[sessionId]
+	}
 	client.sessionMtx.Unlock()
 
 	if !ok {
@@ -135,24 +144,54 @@ func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
 // Get reponse of a session without block..
 func (client *TcpClient) GetRespNonBlock(sessionId int) *Msg {
 	client.sessionMtx.Lock()
-	session, ok := client.sessionMap[sessionId]
+	var msg *Msg
+	session, ok := client.finishedSessionMap[sessionId]
+	if ok {
+		select {
+		case msg = <-session.sessionChan:
+			delete(client.finishedSessionMap, sessionId)
+		default:
+			log.Errorf("BUG: the seesonChan(%d) in finishedSessionMap should not block.", sessionId)
+			msg = nil
+		}
+	} else {
+		session, ok = client.sessionMap[sessionId]
+		if !ok {
+			log.Errorf("Can't get session channel(%d)", sessionId)
+			msg = nil
+		}
+	}
 	client.sessionMtx.Unlock()
+	return msg
 
-	if !ok {
-		log.Errorf("Can't get session channel(%d)", sessionId)
-		return nil
-	}
-
-	select {
-	case msg := <-session.sessionChan:
-		client.safeDeleteFinishedSession(sessionId)
-		return msg
-	default:
-		return nil
-	}
 }
 
-func (client *TcpClient) safeAddSession(sessionId int, msg *Msg) {
+// this function don't need lock, we will lock in the caller
+func (client *TcpClient) createConnection(addr string) *Connection {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		log.WarnErrorf(err, "Can't dail to %s", addr)
+		return nil
+	}
+	connection := NewConnection(conn)
+	client.connMap[addr] = connection
+	go func(c *Connection) {
+		for {
+			msg := c.ReceiveMsg()
+			if msg == nil {
+				c.Disconnect()
+				return
+			}
+			log.Debugf("[client] receive msg(%s)", msg.String())
+			client.respChan <- msg
+			log.Debugf("[client] finished write msg(%d) to respChan", msg.sessionId)
+		}
+	}(connection)
+
+	return connection
+}
+
+func (client *TcpClient) safeAddSession(sessionId int) {
 	client.sessionMtx.Lock()
 	session := NewSession(sessionId)
 	client.sessionMap[sessionId] = session

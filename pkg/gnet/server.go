@@ -54,6 +54,7 @@ func (server *TcpServer) Start() {
 			log.WarnErrorf(err, "Accept Error.")
 			return
 		}
+		log.Infof("Accept connection from %s", conn.RemoteAddr().String())
 		go func(conn net.Conn) {
 			connection := NewConnection(conn)
 
@@ -67,6 +68,7 @@ func (server *TcpServer) Start() {
 					return
 				}
 				msg.SetConnection(connection)
+				log.Debugf("[Server] Get msg: %s", msg.String())
 				server.reqChan <- msg
 			}
 		}(conn)
