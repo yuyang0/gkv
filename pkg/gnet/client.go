@@ -24,21 +24,19 @@ func NewSession(sessionId int) *Session {
 }
 
 type TcpClient struct {
-	mu                 sync.Mutex
-	connMap            map[string]*Connection
-	sessionMtx         sync.Mutex
-	sessionMap         map[int]*Session
-	finishedSessionMap map[int]*Session
+	mu         sync.Mutex
+	connMap    map[string]*Connection
+	sessionMtx sync.RWMutex
+	sessionMap map[int]*Session
 
 	respChan chan *Msg
 }
 
 func NewTcpClient() *TcpClient {
 	client := &TcpClient{
-		connMap:            make(map[string]*Connection, 10),
-		sessionMap:         make(map[int]*Session, 10),
-		finishedSessionMap: make(map[int]*Session, 10),
-		respChan:           make(chan *Msg, 100),
+		connMap:    make(map[string]*Connection, 10),
+		sessionMap: make(map[int]*Session, 10),
+		respChan:   make(chan *Msg, 100),
 	}
 	//this goroutine used to check the idle connections
 	// when this connection stays idle for 15 minutes, we will close it.
@@ -61,40 +59,43 @@ func NewTcpClient() *TcpClient {
 			sessionId := msg.sessionId
 
 			log.Debugf("[client] Move resp(%d) to session", sessionId)
-			client.sessionMtx.Lock()
+			client.sessionMtx.RLock()
 			session, ok := client.sessionMap[sessionId]
 			if ok {
-				select {
-				case session.sessionChan <- msg:
-					log.Infof("Write reponse for session(%d) to channel", sessionId)
-					delete(client.sessionMap, sessionId)
-					client.finishedSessionMap[sessionId] = session
-				default:
-					log.Errorf("BUG: write to session(%d) channel should not block.", sessionId)
+				if len(session.sessionChan) == 1 {
+					log.Infof("session(%d) is timeout..")
+				} else {
+					select {
+					case session.sessionChan <- msg:
+						log.Infof("Write reponse for session(%d) to channel", sessionId)
+					default:
+						log.Errorf("BUG: write to session(%d) channel should not block.", sessionId)
+					}
 				}
 			} else {
-				log.Warnf("Session(%d) maybe timeout.", sessionId)
+				log.Warnf("A bug or a wrong message, because we can't find session(%d)", sessionId)
 			}
-			client.sessionMtx.Unlock()
+			client.sessionMtx.RUnlock()
 		}
 	}()
 
 	//this goroutine used to check the timeout session
 	go func(c *TcpClient) {
 		for {
-			c.sessionMtx.Lock()
+			c.sessionMtx.RLock()
 			for sessionId, session := range c.sessionMap {
+				if len(session.sessionChan) >= 1 {
+					continue
+				}
 				if time.Since(session.createdTime) > 120*time.Second {
 					select {
 					case session.sessionChan <- NewTimeoutMsg(sessionId):
-						delete(c.sessionMap, sessionId)
-						c.finishedSessionMap[sessionId] = session
 					default:
 						log.Errorf("Write timeout session to session(%d) channel should not block..", sessionId)
 					}
 				}
 			}
-			c.sessionMtx.Unlock()
+			c.sessionMtx.RUnlock()
 
 			time.Sleep(5 * time.Second)
 		}
@@ -103,7 +104,7 @@ func NewTcpClient() *TcpClient {
 	return client
 }
 
-func (client *TcpClient) SendMsg(addr string, msg *Msg) bool {
+func (client *TcpClient) SendReq(addr string, msg *Msg) bool {
 	client.mu.Lock()
 
 	connection, ok := client.connMap[addr]
@@ -120,17 +121,13 @@ func (client *TcpClient) SendMsg(addr string, msg *Msg) bool {
 	client.mu.Unlock()
 
 	client.safeAddSession(msg.sessionId)
-	log.Debug(client.sessionMap)
 	return true
 }
 
 func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
-	client.sessionMtx.Lock()
-	session, ok := client.finishedSessionMap[sessionId]
-	if !ok {
-		session, ok = client.sessionMap[sessionId]
-	}
-	client.sessionMtx.Unlock()
+	client.sessionMtx.RLock()
+	session, ok := client.sessionMap[sessionId]
+	client.sessionMtx.RUnlock()
 
 	if !ok {
 		log.Errorf("Can't get session channel(%d)", sessionId)
@@ -138,31 +135,30 @@ func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
 	}
 
 	msg := <-session.sessionChan
-	client.safeDeleteFinishedSession(sessionId)
+	client.safeDeleteSession(sessionId)
 	return msg, nil
 }
 
 // Get reponse of a session without block..
 func (client *TcpClient) GetRespNonBlock(sessionId int) *Msg {
-	client.sessionMtx.Lock()
 	var msg *Msg
-	session, ok := client.finishedSessionMap[sessionId]
+
+	client.sessionMtx.RLock()
+	session, ok := client.sessionMap[sessionId]
+	client.sessionMtx.RUnlock()
+
 	if ok {
 		select {
 		case msg = <-session.sessionChan:
-			delete(client.finishedSessionMap, sessionId)
+			client.safeDeleteSession(sessionId)
 		default:
 			log.Errorf("BUG: the seesonChan(%d) in finishedSessionMap should not block.", sessionId)
 			msg = nil
 		}
 	} else {
-		session, ok = client.sessionMap[sessionId]
-		if !ok {
-			log.Errorf("Can't get session channel(%d)", sessionId)
-			msg = nil
-		}
+		log.Errorf("Can't get session channel(%d)", sessionId)
+		msg = nil
 	}
-	client.sessionMtx.Unlock()
 	return msg
 
 }
@@ -183,7 +179,7 @@ func (client *TcpClient) createConnection(addr string) *Connection {
 				c.Disconnect()
 				return
 			}
-			log.Debugf("[client] receive msg(%s)", msg.String())
+			// log.Debugf("[client] receive msg(%s)", msg.String())
 			client.respChan <- msg
 			log.Debugf("[client] finished write msg(%d) to respChan", msg.sessionId)
 		}
@@ -199,11 +195,11 @@ func (client *TcpClient) safeAddSession(sessionId int) {
 	client.sessionMtx.Unlock()
 }
 
-func (c *TcpClient) safeDeleteFinishedSession(sessionId int) {
+func (c *TcpClient) safeDeleteSession(sessionId int) {
 	c.sessionMtx.Lock()
-	session, ok := c.finishedSessionMap[sessionId]
+	session, ok := c.sessionMap[sessionId]
 	if ok {
-		delete(c.finishedSessionMap, sessionId)
+		delete(c.sessionMap, sessionId)
 		close(session.sessionChan)
 	}
 	c.sessionMtx.Unlock()
