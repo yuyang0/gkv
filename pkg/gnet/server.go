@@ -13,6 +13,7 @@ type TcpServer struct {
 	listener   net.Listener
 	connMap    map[string]*Connection
 	reqChan    chan *Msg
+	stopChan   chan bool
 
 	mu sync.Mutex
 }
@@ -28,6 +29,8 @@ func NewTcpServer(addr string) *TcpServer {
 		listener:   listener,
 		connMap:    make(map[string]*Connection),
 		reqChan:    make(chan *Msg, 100), // all request message will write to this chan
+
+		stopChan: make(chan bool, 1),
 	}
 	//this goroutine used to check the idle connections
 	// when this connection stays idle for 15 minutes, we will close it.
@@ -49,6 +52,19 @@ func NewTcpServer(addr string) *TcpServer {
 
 func (server *TcpServer) Start() {
 	for {
+		// check if need to stop the loop..
+		select {
+		case <-server.stopChan:
+			server.mu.Lock()
+			for addr, conn := range server.connMap {
+				delete(server.connMap, addr)
+				conn.Disconnect()
+			}
+			server.mu.Unlock()
+		default:
+
+		}
+
 		conn, err := server.listener.Accept()
 		if err != nil {
 			log.WarnErrorf(err, "Accept Error.")
@@ -68,7 +84,7 @@ func (server *TcpServer) Start() {
 					return
 				}
 				msg.SetConnection(connection)
-				log.Debugf("[Server] Get msg: %s", msg.String())
+				// log.Debugf("[Server] Get msg: %s", msg.String())
 				server.reqChan <- msg
 			}
 		}(conn)
@@ -76,6 +92,7 @@ func (server *TcpServer) Start() {
 }
 
 func (s *TcpServer) Stop() {
+	s.stopChan <- true
 	s.listener.Close()
 	return
 }
