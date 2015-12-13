@@ -2,8 +2,10 @@ package gnet
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
+	"hash/adler32"
 	"io"
 	"math/rand"
 
@@ -117,6 +119,16 @@ func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
 		return nil, err
 	}
 
+	_, err = reader.Read(tmp)
+	if err != nil {
+		log.WarnErrorf(err, "Can't read checkSum")
+		return nil, err
+	}
+	checkSum := binary.BigEndian.Uint32(tmp)
+	if checkSum != adler32.Checksum(data) {
+		log.Warnf("checkSum is incorrect..")
+	}
+
 	msg := &Msg{
 		length:     length,
 		encodeType: EncodeType(encodeType),
@@ -128,21 +140,18 @@ func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
 }
 
 func (msg *Msg) ConvertToBytes() []byte {
-	ret := []byte(MAGIC_STR)
-	tmp := make([]byte, 4)
-	binary.BigEndian.PutUint32(tmp, msg.length)
-	ret = append(ret, tmp...)
+	getBytes := func(val uint32) []byte {
+		tmp := make([]byte, 4)
+		binary.BigEndian.PutUint32(tmp, val)
+		return tmp
+	}
+	checkSum := adler32.Checksum(msg.data)
+	var b bytes.Buffer
+	fmt.Fprint(&b, []byte(MAGIC_STR), getBytes(msg.length),
+		getBytes(uint32(msg.encodeType)), getBytes(msg.sessionId),
+		getBytes(msg.pCode), msg.data, getBytes(checkSum))
 
-	binary.BigEndian.PutUint32(tmp, uint32(msg.encodeType))
-	ret = append(ret, tmp...)
-
-	binary.BigEndian.PutUint32(tmp, msg.sessionId)
-	ret = append(ret, tmp...)
-
-	binary.BigEndian.PutUint32(tmp, msg.pCode)
-	ret = append(ret, tmp...)
-	ret = append(ret, msg.data...)
-	return ret
+	return b.Bytes()
 }
 
 func NewReqMsg(encodeType EncodeType, pCode uint32, data []byte) *Msg {
