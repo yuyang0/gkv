@@ -70,6 +70,7 @@ func NewErrorMsg(sessionId uint32) *Msg {
 }
 
 func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
+begin:
 	// first we need to ignore the magic bytes
 	for {
 		bytes, err := reader.Peek(LEN_MAGIC_STR)
@@ -126,7 +127,8 @@ func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
 	}
 	checkSum := binary.BigEndian.Uint32(tmp)
 	if checkSum != adler32.Checksum(data) {
-		log.Warnf("checkSum is incorrect..")
+		log.Warnf("checkSum is incorrect.so we will ignore this message.")
+		goto begin
 	}
 
 	msg := &Msg{
@@ -146,11 +148,15 @@ func (msg *Msg) ConvertToBytes() []byte {
 		return tmp
 	}
 	checkSum := adler32.Checksum(msg.data)
-	var b bytes.Buffer
-	fmt.Fprint(&b, []byte(MAGIC_STR), getBytes(msg.length),
-		getBytes(uint32(msg.encodeType)), getBytes(msg.sessionId),
-		getBytes(msg.pCode), msg.data, getBytes(checkSum))
 
+	var b bytes.Buffer
+	b.Write([]byte(MAGIC_STR))
+	b.Write(getBytes(msg.length))
+	b.Write(getBytes(uint32(msg.encodeType)))
+	b.Write(getBytes(msg.sessionId))
+	b.Write(getBytes(msg.pCode))
+	b.Write(msg.data)
+	b.Write(getBytes(checkSum))
 	return b.Bytes()
 }
 
