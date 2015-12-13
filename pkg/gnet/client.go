@@ -86,6 +86,7 @@ func (client *TcpClient) SendReq(addr string, msg *Msg) bool {
 			client.mu.Unlock()
 			return false
 		}
+		client.connMap[addr] = connection
 	}
 	client.mu.Unlock()
 
@@ -104,9 +105,7 @@ func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
 		log.Errorf("Can't get session channel(%d)", sessionId)
 		return nil, fmt.Errorf("Can't get session channel(%d)", sessionId)
 	}
-	log.Debugf("[GetRespBlock] prepare to get resp from session channel(%d)", sessionId)
 	msg := <-session.sessionChan
-	log.Debugf("[GetRespBlock] after to get resp from session channel(%d)", sessionId)
 	client.safeDeleteSession(sessionId)
 	return msg, nil
 }
@@ -143,7 +142,6 @@ func (client *TcpClient) createConnection(addr string) *Connection {
 		return nil
 	}
 	connection := NewConnection(conn, false)
-	client.connMap[addr] = connection
 
 	//move all the response from this connection to session channel
 	go func(c *Connection) {
