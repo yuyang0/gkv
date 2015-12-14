@@ -1,4 +1,4 @@
-package gnet
+package packet
 
 type PacketInterface interface {
 	encode()
