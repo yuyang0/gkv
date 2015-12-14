@@ -13,6 +13,11 @@ import (
 type EncodeType int
 
 const (
+	MAGIC_STR     = "\r\r\r\r"
+	LEN_MAGIC_STR = 4
+)
+
+const (
 	ENCODE_TYPE_JSON = EncodeType(1 << iota)
 	ENCODE_TYPE_PROTOBUF
 )
@@ -63,6 +68,20 @@ func NewErrorMsg(sessionId int) *Msg {
 }
 
 func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
+	// first we need to ignore the magic bytes
+	for {
+		bytes, err := reader.Peek(LEN_MAGIC_STR)
+		if err != nil {
+			log.WarnErrorf(err, "Can't peek from reader..")
+			return nil, err
+		}
+		if string(bytes) == MAGIC_STR {
+			reader.Discard(LEN_MAGIC_STR)
+			break
+		} else {
+			reader.Discard(1)
+		}
+	}
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		log.WarnErrorf(err, "can't read message length.")
@@ -123,8 +142,8 @@ func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
 }
 
 func (self *Msg) ConvertToBytes() []byte {
-	ss := fmt.Sprintf("%d\r\n%d\r\n%d\r\n%d\r\n\r\n%s",
-		self.length, self.encodeType, self.sessionId, self.pCode, self.data)
+	ss := fmt.Sprintf("%s%d\r\n%d\r\n%d\r\n%d\r\n\r\n%s",
+		MAGIC_STR, self.length, self.encodeType, self.sessionId, self.pCode, self.data)
 	return []byte(ss)
 }
 
