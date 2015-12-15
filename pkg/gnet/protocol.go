@@ -174,7 +174,7 @@ func (msg *Msg) SetConnection(conn *Connection) {
 }
 
 func (msg *Msg) String() string {
-	ss := fmt.Sprintf("{\n\tlength: %d \n\tsessionId %d \n\tdata %s}", msg.length, msg.sessionId, string(msg.data))
+	ss := fmt.Sprintf("{length: %d, sessionId %d, data %s}", msg.length, msg.sessionId, string(msg.data))
 	return ss
 }
 
