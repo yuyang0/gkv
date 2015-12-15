@@ -9,8 +9,13 @@ import (
 	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
+const (
+	DEFAULT_SPEED_LIMIT = 1000
+)
+
 type Connection struct {
 	isServer    bool
+	speedLimit  int // limit the max number of packets per second
 	incoming    chan *Msg
 	outgoing    chan *Msg
 	reader      *bufio.Reader
@@ -29,6 +34,7 @@ func NewConnection(conn net.Conn, isServer bool) *Connection {
 
 	connection := &Connection{
 		isServer:    isServer,
+		speedLimit:  1000,
 		incoming:    make(chan *Msg),
 		outgoing:    make(chan *Msg),
 		reader:      reader,
@@ -47,6 +53,8 @@ func NewConnection(conn net.Conn, isServer bool) *Connection {
 }
 
 func (c *Connection) read() {
+	curNumMsg := 0
+	lastTime := time.Now()
 	for {
 		// check if need to stop this goroutine
 		select {
@@ -73,10 +81,25 @@ func (c *Connection) read() {
 		c.mtx.Unlock()
 
 		c.incoming <- msg
+
+		// limit the read speed
+		curNumMsg++
+		now := time.Now()
+		d := now.Sub(lastTime)
+		if d.Seconds() >= 1 {
+			lastTime = now
+			curNumMsg = 0
+		}
+		if curNumMsg > c.speedLimit {
+			time.Sleep(d)
+		}
 	}
 }
 
 func (c *Connection) write() {
+	curNumMsg := 0
+	lastTime := time.Now()
+
 	for msg := range c.outgoing {
 		log.Debugf("write message(%d)", msg.sessionId)
 		data := msg.ConvertToBytes()
@@ -99,6 +122,19 @@ func (c *Connection) write() {
 			return
 		default:
 		}
+
+		// limit the write speed
+		curNumMsg++
+		now := time.Now()
+		d := now.Sub(lastTime)
+		if d.Seconds() >= 1 {
+			lastTime = now
+			curNumMsg = 0
+		}
+		if curNumMsg > c.speedLimit {
+			time.Sleep(d)
+		}
+
 	}
 	if c.isServer {
 		c.conn.Close()
