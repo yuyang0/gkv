@@ -1,7 +1,9 @@
 package gnet
 
 import (
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/yuyang0/gkv/pkg/utils/log"
 )
@@ -13,8 +15,9 @@ var (
 )
 
 func init() {
+	rand.Seed(time.Now().UnixNano())
 	// log.SetLevel(log.LEVEL_DEBUG)
-	log.SetLevel(log.LEVEL_ERROR)
+	log.SetLevel(log.LEVEL_INFO)
 	log.Debugf("set log level to debug..")
 	addr = "127.0.0.1:8888"
 	s = NewTcpServer(addr)
@@ -30,14 +33,24 @@ func init() {
 	}()
 }
 
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func RandStringBytes() string {
+	n := rand.Intn(1000)
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
+}
 func TestServer(t *testing.T) {
 	log.Debugf("Enter TestServer..")
 	numTimeout := 0
 	numUnmatch := 0
 	numSuccess := 0
-	for i := 0; i < 100000; i++ {
-		log.Debugf("loop: %d.", i)
-		val := "hello world"
+	for i := 0; i < 10000; i++ {
+		val := RandStringBytes()
+		log.Infof("loop: %d. msg len: %d", i, len(val))
 		msg := NewReqMsg(ENCODE_TYPE_JSON, 3, []byte(val))
 		log.Debugf("request msg: %s", msg.String())
 		c.SendReq(addr, msg)
