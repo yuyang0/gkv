@@ -60,9 +60,6 @@ func (c *Connection) read() {
 		select {
 		case <-c.disconnectChan:
 			close(c.incoming)
-			if !c.isServer {
-				c.conn.Close()
-			}
 			return
 		default:
 		}
@@ -72,7 +69,7 @@ func (c *Connection) read() {
 			log.ErrorErrorf(err, "Can't read Msg from %s", c.addr)
 
 			close(c.incoming)
-			c.conn.Close()
+			c.Disconnect()
 			return
 		}
 
@@ -100,44 +97,42 @@ func (c *Connection) write() {
 	curNumMsg := 0
 	lastTime := time.Now()
 
-	for msg := range c.outgoing {
-		log.Debugf("write message(%d)", msg.sessionId)
-		data := msg.ConvertToBytes()
-		// c.conn.SetWriteDeadline(time.Now().Add(70 * time.Second))
-		_, err := c.writer.Write(data)
-		if err != nil {
-			log.ErrorErrorf(err, "Can't write all data to connection")
-			return
-		}
-		c.writer.Flush()
-
-		// log.Debugf("finished write message(%d)", msg.sessionId)
-
-		c.mtx.Lock()
-		c.lastUseTime = time.Now()
-		c.mtx.Unlock()
-
+	for {
 		select {
 		case <-c.disconnectChan:
 			return
-		default:
-		}
+		case msg, ok := <-c.outgoing:
+			if !ok {
+				return
+			}
+			data := msg.ConvertToBytes()
+			// c.conn.SetWriteDeadline(time.Now().Add(70 * time.Second))
+			_, err := c.writer.Write(data)
+			if err != nil {
+				log.ErrorErrorf(err, "Can't write all data to connection")
+				c.Disconnect()
+				return
+			}
+			c.writer.Flush()
 
-		// limit the write speed
-		curNumMsg++
-		now := time.Now()
-		d := now.Sub(lastTime)
-		if d.Seconds() >= 1 {
-			lastTime = now
-			curNumMsg = 0
-		}
-		if curNumMsg > c.speedLimit {
-			time.Sleep(d)
-		}
+			// log.Debugf("finished write message(%d)", msg.sessionId)
 
-	}
-	if c.isServer {
-		c.conn.Close()
+			c.mtx.Lock()
+			c.lastUseTime = time.Now()
+			c.mtx.Unlock()
+
+			// limit the write speed
+			curNumMsg++
+			now := time.Now()
+			d := now.Sub(lastTime)
+			if d.Seconds() >= 1 {
+				lastTime = now
+				curNumMsg = 0
+			}
+			if curNumMsg > c.speedLimit {
+				time.Sleep(d)
+			}
+		}
 	}
 }
 
@@ -192,11 +187,12 @@ func (c *Connection) Disconnect() {
 	select {
 	case c.disconnectChan <- true:
 	default:
-		log.Warnf("You may call Disconnect on connection(%s) twice", c.addr)
-		return
+		// log.Warnf("You may call Disconnect on connection(%s) twice", c.addr)
+		// return
 	}
+	// maybe a error, but we don't care..
 	c.conn.Close()
-	close(c.outgoing)
+	// close(c.outgoing)
 }
 
 func (conn *Connection) CloseSendChan() {
