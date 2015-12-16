@@ -2,15 +2,15 @@ package gnet
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"math/rand"
-	"strconv"
 
 	"github.com/yuyang0/gkv/pkg/utils/log"
 )
 
-type EncodeType int
+type EncodeType uint32
 
 const (
 	MAGIC_STR     = "\r\r\r\r"
@@ -39,17 +39,17 @@ const (
 )
 
 type Msg struct {
-	length     int
+	length     uint32
 	encodeType EncodeType
-	sessionId  int
-	pCode      int
+	sessionId  uint32
+	pCode      uint32
 
 	data []byte
 
 	connection *Connection
 }
 
-func NewTimeoutMsg(sessionId int) *Msg {
+func NewTimeoutMsg(sessionId uint32) *Msg {
 	return &Msg{
 		length:     0,
 		encodeType: ENCODE_TYPE_JSON,
@@ -58,7 +58,7 @@ func NewTimeoutMsg(sessionId int) *Msg {
 	}
 }
 
-func NewErrorMsg(sessionId int) *Msg {
+func NewErrorMsg(sessionId uint32) *Msg {
 	return &Msg{
 		length:     0,
 		encodeType: ENCODE_TYPE_JSON,
@@ -82,55 +82,41 @@ func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
 			reader.Discard(1)
 		}
 	}
-	line, err := reader.ReadString('\n')
+	tmp := make([]byte, 4)
+	_, err := reader.Read(tmp)
 	if err != nil {
 		log.WarnErrorf(err, "can't read message length.")
 		return nil, err
 	}
-	length, err := strconv.Atoi(line[:len(line)-2])
-	if err != nil {
-		log.WarnErrorf(err, "Can't convert message length to integer.")
-		return nil, err
-	}
-	line, err = reader.ReadString('\n')
+	length := binary.BigEndian.Uint32(tmp)
+	_, err = reader.Read(tmp)
 	if err != nil {
 		log.WarnErrorf(err, "Can't read message encode type..")
 		return nil, err
 	}
-	encodeType, err := strconv.Atoi(line[:len(line)-2])
-	if err != nil {
-		log.WarnErrorf(err, "Can't convert message encodeType to integer.")
-		return nil, err
-	}
-	line, err = reader.ReadString('\n')
+	encodeType := binary.BigEndian.Uint32(tmp)
+
+	_, err = reader.Read(tmp)
 	if err != nil {
 		log.WarnErrorf(err, "Can't read channel id.")
 		return nil, err
 	}
-	sessionId, err := strconv.Atoi(line[:len(line)-2])
+	sessionId := binary.BigEndian.Uint32(tmp)
+
+	_, err = reader.Read(tmp)
 	if err != nil {
-		log.WarnErrorf(err, "Can't convert sessionId to integer..")
+		log.WarnErrorf(err, "Can't read channel id.")
 		return nil, err
 	}
-	line, err = reader.ReadString('\n')
-	pCode, err := strconv.Atoi(line[:len(line)-2])
-	// ignore the rest headers
-	for {
-		line, err = reader.ReadString('\n')
-		if line == "\r\n" {
-			break
-		}
-	}
+	pCode := binary.BigEndian.Uint32(tmp)
+
 	data := make([]byte, length)
-	n, err := io.ReadFull(reader, data)
+	_, err = io.ReadFull(reader, data)
 	if err != nil {
 		log.WarnErrorf(err, "Can't read data..")
 		return nil, err
 	}
-	if n != length {
-		log.WarnErrorf(err, "Need read %d bytes, but only get %d bytes", length, n)
-		return nil, fmt.Errorf("Need read %d bytes, but only get %d bytes", length, n)
-	}
+
 	msg := &Msg{
 		length:     length,
 		encodeType: EncodeType(encodeType),
@@ -141,16 +127,28 @@ func readMsgFromReader(reader *bufio.Reader) (*Msg, error) {
 	return msg, nil
 }
 
-func (self *Msg) ConvertToBytes() []byte {
-	ss := fmt.Sprintf("%s%d\r\n%d\r\n%d\r\n%d\r\n\r\n%s",
-		MAGIC_STR, self.length, self.encodeType, self.sessionId, self.pCode, self.data)
-	return []byte(ss)
+func (msg *Msg) ConvertToBytes() []byte {
+	ret := []byte(MAGIC_STR)
+	tmp := make([]byte, 4)
+	binary.BigEndian.PutUint32(tmp, msg.length)
+	ret = append(ret, tmp...)
+
+	binary.BigEndian.PutUint32(tmp, uint32(msg.encodeType))
+	ret = append(ret, tmp...)
+
+	binary.BigEndian.PutUint32(tmp, msg.sessionId)
+	ret = append(ret, tmp...)
+
+	binary.BigEndian.PutUint32(tmp, msg.pCode)
+	ret = append(ret, tmp...)
+	ret = append(ret, msg.data...)
+	return ret
 }
 
-func NewReqMsg(encodeType EncodeType, pCode int, data []byte) *Msg {
+func NewReqMsg(encodeType EncodeType, pCode uint32, data []byte) *Msg {
 	length := len(data)
 	return &Msg{
-		length:     length,
+		length:     uint32(length),
 		encodeType: encodeType,
 		sessionId:  genSessionId(),
 		pCode:      pCode,
@@ -158,10 +156,10 @@ func NewReqMsg(encodeType EncodeType, pCode int, data []byte) *Msg {
 	}
 }
 
-func NewRespMsg(encodeType EncodeType, sessionId int, pCode int, data []byte) *Msg {
+func NewRespMsg(encodeType EncodeType, sessionId uint32, pCode uint32, data []byte) *Msg {
 	length := len(data)
 	return &Msg{
-		length:     length,
+		length:     uint32(length),
 		encodeType: encodeType,
 		sessionId:  sessionId,
 		pCode:      pCode,
@@ -178,6 +176,6 @@ func (msg *Msg) String() string {
 	return ss
 }
 
-func genSessionId() int {
-	return rand.Int()
+func genSessionId() uint32 {
+	return rand.Uint32()
 }

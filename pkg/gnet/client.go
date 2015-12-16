@@ -10,12 +10,12 @@ import (
 )
 
 type Session struct {
-	sessionId   int
+	sessionId   uint32
 	sessionChan chan *Msg
 	createdTime time.Time
 }
 
-func NewSession(sessionId int) *Session {
+func NewSession(sessionId uint32) *Session {
 	return &Session{
 		sessionId:   sessionId,
 		sessionChan: make(chan *Msg, 1),
@@ -27,13 +27,13 @@ type TcpClient struct {
 	mu         sync.Mutex
 	connMap    map[string]*Connection
 	sessionMtx sync.RWMutex
-	sessionMap map[int]*Session
+	sessionMap map[uint32]*Session
 }
 
 func NewTcpClient() *TcpClient {
 	client := &TcpClient{
 		connMap:    make(map[string]*Connection, 10),
-		sessionMap: make(map[int]*Session, 10),
+		sessionMap: make(map[uint32]*Session, 10),
 	}
 	//this goroutine used to check the idle connections
 	// when this connection stays idle for 15 minutes, we will close it.
@@ -96,7 +96,7 @@ func (client *TcpClient) SendReq(addr string, msg *Msg) bool {
 	return true
 }
 
-func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
+func (client *TcpClient) GetRespBlock(sessionId uint32) (*Msg, error) {
 	client.sessionMtx.RLock()
 	session, ok := client.sessionMap[sessionId]
 	client.sessionMtx.RUnlock()
@@ -111,7 +111,7 @@ func (client *TcpClient) GetRespBlock(sessionId int) (*Msg, error) {
 }
 
 // Get reponse of a session without block..
-func (client *TcpClient) GetRespNonBlock(sessionId int) *Msg {
+func (client *TcpClient) GetRespNonBlock(sessionId uint32) *Msg {
 	var msg *Msg
 
 	client.sessionMtx.RLock()
@@ -173,14 +173,14 @@ func (client *TcpClient) createConnection(addr string) *Connection {
 	return connection
 }
 
-func (client *TcpClient) safeAddSession(sessionId int) {
+func (client *TcpClient) safeAddSession(sessionId uint32) {
 	client.sessionMtx.Lock()
 	session := NewSession(sessionId)
 	client.sessionMap[sessionId] = session
 	client.sessionMtx.Unlock()
 }
 
-func (c *TcpClient) safeDeleteSession(sessionId int) {
+func (c *TcpClient) safeDeleteSession(sessionId uint32) {
 	c.sessionMtx.Lock()
 	session, ok := c.sessionMap[sessionId]
 	if ok {
