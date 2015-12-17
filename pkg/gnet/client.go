@@ -141,7 +141,7 @@ func (client *TcpClient) createConnection(addr string) *Connection {
 		log.WarnErrorf(err, "Can't dail to %s", addr)
 		return nil
 	}
-	connection := NewConnection(conn, false)
+	connection := NewConnection(conn, false, -1)
 
 	//move all the response from this connection to session channel
 	go func(c *Connection) {

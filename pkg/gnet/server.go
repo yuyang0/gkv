@@ -77,7 +77,7 @@ func (server *TcpServer) Start() {
 		}
 		log.Infof("Accept connection from %s", conn.RemoteAddr().String())
 		go func(conn net.Conn) {
-			connection := NewConnection(conn, true)
+			connection := NewConnection(conn, true, -1)
 
 			server.safeAddConn(connection)
 

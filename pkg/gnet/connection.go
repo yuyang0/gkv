@@ -28,15 +28,18 @@ type Connection struct {
 	disconnectChan chan bool
 }
 
-func NewConnection(conn net.Conn, isServer bool) *Connection {
+func NewConnection(conn net.Conn, isServer bool, speedLimit int) *Connection {
+	if speedLimit == -1 {
+		speedLimit = DEFAULT_SPEED_LIMIT
+	}
 	writer := bufio.NewWriter(conn)
 	reader := bufio.NewReader(conn)
 
 	connection := &Connection{
 		isServer:    isServer,
-		speedLimit:  1000,
-		incoming:    make(chan *Msg),
-		outgoing:    make(chan *Msg),
+		speedLimit:  speedLimit,
+		incoming:    make(chan *Msg, speedLimit/2),
+		outgoing:    make(chan *Msg, speedLimit/2),
 		reader:      reader,
 		writer:      writer,
 		conn:        conn,
@@ -56,18 +59,10 @@ func (c *Connection) read() {
 	curNumMsg := 0
 	lastTime := time.Now()
 	for {
-		// check if need to stop this goroutine
-		select {
-		case <-c.disconnectChan:
-			close(c.incoming)
-			return
-		default:
-		}
 		// c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 		msg, err := readMsgFromReader(c.reader)
 		if err != nil {
 			log.ErrorErrorf(err, "Can't read Msg from %s", c.addr)
-
 			close(c.incoming)
 			c.Disconnect()
 			return
@@ -77,7 +72,13 @@ func (c *Connection) read() {
 		c.lastUseTime = time.Now()
 		c.mtx.Unlock()
 
-		c.incoming <- msg
+		select {
+		case <-c.disconnectChan:
+			close(c.incoming)
+			c.Disconnect()
+			return
+		case c.incoming <- msg:
+		}
 
 		// limit the read speed
 		curNumMsg++
@@ -145,11 +146,12 @@ func (c *Connection) LastUseTime() time.Time {
 
 // send a message(this function maybe block)
 func (c *Connection) SendMsg(msg *Msg) bool {
-	if c.IsDisconnect() {
+	select {
+	case <-c.disconnectChan:
 		return false
+	case c.outgoing <- msg:
+		return true
 	}
-	c.outgoing <- msg
-	return true
 }
 
 func (c *Connection) SendMsgNonBlock(msg *Msg) bool {
@@ -164,14 +166,25 @@ func (c *Connection) SendMsgNonBlock(msg *Msg) bool {
 
 // receive a msg from conncetion(this function maybe block.)
 func (c *Connection) ReceiveMsg() *Msg {
-	if c.IsDisconnect() {
-		return nil
-	}
-	msg, ok := <-c.incoming
-	if ok {
-		return msg
-	} else {
-		return nil
+	select {
+	case <-c.disconnectChan:
+		// when in client side,there may exists some message in buffered channel
+		if !c.isServer {
+			select {
+			case msg := <-c.incoming:
+				return msg
+			default:
+				return nil
+			}
+		} else {
+			return nil
+		}
+	case msg, ok := <-c.incoming:
+		if ok {
+			return msg
+		} else {
+			return nil
+		}
 	}
 }
 
@@ -186,13 +199,10 @@ func (c *Connection) IsDisconnect() bool {
 func (c *Connection) Disconnect() {
 	select {
 	case c.disconnectChan <- true:
+		// maybe a error, but we don't care..
+		c.conn.Close()
 	default:
-		// log.Warnf("You may call Disconnect on connection(%s) twice", c.addr)
-		// return
 	}
-	// maybe a error, but we don't care..
-	c.conn.Close()
-	// close(c.outgoing)
 }
 
 func (conn *Connection) CloseSendChan() {
