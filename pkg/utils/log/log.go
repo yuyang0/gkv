@@ -23,6 +23,7 @@ const (
 	Lshortfile    = log.Lshortfile
 	LstdFlags     = log.LstdFlags
 	Ltime         = log.Ltime
+	LdefaultFlags = log.Ldate | log.Lshortfile | log.Lmicroseconds
 )
 
 type (
@@ -93,16 +94,16 @@ type Logger struct {
 	trace LogLevel
 }
 
-var StdLog = New(NopCloser(os.Stderr), "")
+var StdLog = New(NopCloser(os.Stderr), "", LdefaultFlags)
 
-func New(writer io.Writer, prefix string) *Logger {
+func New(writer io.Writer, prefix string, flag int) *Logger {
 	out, ok := writer.(io.WriteCloser)
 	if !ok {
 		out = NopCloser(writer)
 	}
 	return &Logger{
 		out:   out,
-		log:   log.New(out, prefix, LstdFlags),
+		log:   log.New(out, prefix, flag),
 		level: LEVEL_ALL,
 		trace: LEVEL_ERROR,
 	}
@@ -121,16 +122,16 @@ func MustOpenFile(path string) *os.File {
 	return f
 }
 
-func FileLog(path string) (*Logger, error) {
+func FileLog(path string, flag int) (*Logger, error) {
 	f, err := OpenFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return New(f, ""), nil
+	return New(f, "", flag), nil
 }
 
-func MustFileLog(path string) *Logger {
-	return New(MustOpenFile(path), "")
+func MustFileLog(path string, flag int) *Logger {
+	return New(MustOpenFile(path), "", flag)
 }
 
 func (l *Logger) Flags() int {
